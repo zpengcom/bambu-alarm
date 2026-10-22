@@ -1,0 +1,31 @@
+services:
+  web:
+    build: .
+    container_name: bambu-alarm-web
+    restart: unless-stopped
+    command: ["python", "-m", "uvicorn", "app.web.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data          # 配置和状态都存在这里，升级/重建不会丢
+      - ./app:/app/app        # 代码直接挂载：改完文件重启容器即可生效
+    environment:
+      ALARM_DATA_DIR: "/data"
+      APP_TZ: "Asia/Shanghai" # 时区，默认东八区
+      WEB_USER: "admin"
+      WEB_PASSWORD: ""        # 强烈建议设置：留空则网页无需密码
+
+  # 可选：接入小智 AI（xiaozhi.me）的 MCP 接入点，让小智能回答"打印机怎么样了"。
+  # 不用小智的话保持 MCP_ENDPOINT 为空，这个容器会空闲待命，不影响其他功能。
+  mcp:
+    build: .
+    container_name: bambu-alarm-mcp
+    restart: unless-stopped
+    command: ["python", "mcp_pipe.py", "app/mcp_server/server_stdio.py"]
+    volumes:
+      - ./data:/data
+      - ./app:/app/app
+      - ./mcp_pipe.py:/app/mcp_pipe.py
+    environment:
+      ALARM_DATA_DIR: "/data"
+      MCP_ENDPOINT: ""        # 例如 wss://api.xiaozhi.me/mcp/?token=xxxx

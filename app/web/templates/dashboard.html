@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拓竹打印机报警器</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; background: #0f1115; color: #e6e6e6; margin: 0; padding: 2rem; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; }
+  h1 { font-size: 1.4rem; margin: 0 0 0.25rem; }
+  .sub { color: #9aa0a6; }
+  .card { background: #1b1e25; border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; border: 1px solid #2a2e37; }
+  .status-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #555; flex-shrink: 0; }
+  .dot.on { background: #34c759; box-shadow: 0 0 8px #34c759; }
+  .dot.off { background: #ff453a; box-shadow: 0 0 8px #ff453a; }
+  .tag { margin-left: auto; font-size: 0.75rem; color: #9aa0a6; }
+  .field { display: flex; justify-content: space-between; gap: 1rem; padding: 0.4rem 0; border-bottom: 1px solid #262a33; font-size: 0.95rem; }
+  .field:last-child { border-bottom: none; }
+  .field span:first-child { color: #9aa0a6; flex-shrink: 0; }
+  .field span:last-child { text-align: right; word-break: break-all; }
+  .alert-item { padding: 0.6rem 0; border-bottom: 1px solid #262a33; }
+  .alert-item:last-child { border-bottom: none; }
+  .alert-title { font-weight: 600; color: #ff9f0a; }
+  .alert-time { color: #6b7280; font-size: 0.8rem; }
+  .muted { color: #6b7280; }
+  a.btn { display: inline-block; background: #2f6fed; color: white; text-decoration: none; padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.9rem; flex-shrink: 0; white-space: nowrap; }
+  .btn-small { background:#2a2e37; color:#e6e6e6; border:1px solid #3a3f4a; padding:0.3rem 0.7rem; border-radius:6px; font-size:0.8rem; cursor:pointer; }
+  .warn { background: #3a2a12; border: 1px solid #5a4420; color: #ffcf8b; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: 0.9rem; }
+  .warn a { color: #ffcf8b; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div>
+      <h1>🖨️ 拓竹打印机报警器</h1>
+      <div class="sub">实时监控打印机状态，暂停 / 异常时自动推送</div>
+    </div>
+    <a class="btn" href="/config">⚙️ 配置</a>
+  </div>
+
+  <div id="printers"></div>
+
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.75rem;">
+      <div style="font-weight: 600;">最近报警记录</div>
+      <button class="btn-small" onclick="clearAlerts()">清空记录</button>
+    </div>
+    <div id="alerts-list"></div>
+  </div>
+</div>
+
+<script id="init-data" type="application/json">{{ init | tojson }}</script>
+<script>
+let TZ = 'Asia/Shanghai';
+
+function esc(s) {
+  return (s ?? '').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmt(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d)) return esc(iso);
+  return d.toLocaleString('zh-CN', { timeZone: TZ, hour12: false });
+}
+
+function render(s) {
+  TZ = s.tz || TZ;
+  const box = document.getElementById('printers');
+  if (!s.printers.length) {
+    box.innerHTML = '<div class="warn">还没有添加打印机，<a href="/config">点此前往配置页面</a>。</div>';
+  } else {
+    box.innerHTML = s.printers.map(p => {
+      const err = p.print_error ? `${p.print_error}${p.error_text ? '（' + esc(p.error_text) + '）' : ''}` : '无';
+      const prog = (p.progress === null || p.progress === undefined) ? '-' : Math.round(p.progress) + '%';
+      return `
+      <div class="card">
+        <div class="status-row">
+          <div class="dot ${p.connected ? 'on' : 'off'}"></div>
+          <strong>${esc(p.name)}</strong>
+          <span class="tag">${p.enabled ? (p.connected ? '已连接' : '未连接') : '已停用'}</span>
+        </div>
+        <div class="field"><span>当前状态</span><span>${esc(p.state_text)}${p.gcode_state ? ' (' + esc(p.gcode_state) + ')' : ''}</span></div>
+        <div class="field"><span>当前任务</span><span>${esc(p.task_name || '-')}</span></div>
+        <div class="field"><span>进度</span><span>${prog}</span></div>
+        <div class="field"><span>错误代码</span><span>${err}</span></div>
+        <div class="field"><span>最后收到数据</span><span>${fmt(p.last_seen)}</span></div>
+      </div>`;
+    }).join('');
+  }
+
+  const list = document.getElementById('alerts-list');
+  list.innerHTML = s.alerts.length ? s.alerts.map(a => `
+    <div class="alert-item">
+      <div class="alert-title">${esc(a.title)}</div>
+      <div>${esc(a.message)}</div>
+      <div class="alert-time">${fmt(a.time)}</div>
+    </div>`).join('') : '<div class="muted">暂无报警记录</div>';
+}
+
+async function refresh() {
+  try {
+    const resp = await fetch('/api/status', { cache: 'no-store' });
+    if (resp.ok) render(await resp.json());
+  } catch (e) { /* network hiccup: try again next tick */ }
+}
+
+async function clearAlerts() {
+  if (!confirm('确定要清空所有报警记录吗？')) return;
+  try {
+    await fetch('/api/alerts/clear', { method: 'POST' });
+    await refresh();
+  } catch (e) { alert('清空失败，请重试'); }
+}
+
+render(JSON.parse(document.getElementById('init-data').textContent));
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

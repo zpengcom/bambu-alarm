@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>配置 - 拓竹打印机报警器</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; background: #0f1115; color: #e6e6e6; margin: 0; padding: 2rem; }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 1.5rem; }
+  h2 { font-size: 1rem; color: #9aa0a6; margin: 1.75rem 0 0.75rem; letter-spacing: 0.04em; }
+  .card { background: #1b1e25; border-radius: 12px; padding: 1.25rem 1.5rem; border: 1px solid #2a2e37; }
+  label { display: block; font-size: 0.85rem; color: #b6bac2; margin: 0.85rem 0 0.3rem; }
+  input[type=text], input[type=password], textarea, select {
+    width: 100%; box-sizing: border-box; background: #12141a; border: 1px solid #2a2e37; color: #e6e6e6;
+    padding: 0.55rem 0.7rem; border-radius: 8px; font-size: 0.9rem; font-family: inherit;
+  }
+  textarea { min-height: 70px; font-family: monospace; }
+  .checkbox-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.85rem; }
+  .checkbox-row input { width: auto; }
+  .checkbox-row label { margin: 0; }
+  .hint { color: #6b7280; font-size: 0.78rem; margin-top: 0.4rem; line-height: 1.5; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  button { background: #2f6fed; color: white; border: none; padding: 0.65rem 1.4rem; border-radius: 8px; font-size: 0.95rem; cursor: pointer; }
+  button.secondary { background: #2a2e37; border: 1px solid #3a3f4a; color: #e6e6e6; }
+  button.danger { background: transparent; border: 1px solid #5a2a2a; color: #ff6b6b; padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+  .printer { border: 1px solid #2a2e37; border-radius: 10px; padding: 0.25rem 1rem 1rem; margin-bottom: 0.85rem; background: #161920; }
+  .printer-head { display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; font-size: 0.85rem; color: #9aa0a6; }
+  .saved { background: #123a1f; border: 1px solid #1f5c34; color: #7ee2a0; padding: 0.6rem 1rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: 0.88rem; }
+  .warn { background: #3a2a12; border: 1px solid #5a4420; color: #ffcf8b; padding: 0.6rem 1rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: 0.85rem; }
+  .actions { display: flex; gap: 0.75rem; align-items: center; margin-top: 1.75rem; flex-wrap: wrap; }
+  #test-result { font-size: 0.85rem; white-space: pre-line; }
+  a { color: #6c9bff; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⚙️ 配置</h1>
+  {% if saved %}<div class="saved">已保存。修改了打印机信息的话，监听服务会自动重启并应用。</div>{% endif %}
+  {% if not auth_enabled %}<div class="warn">当前没有设置网页访问密码，局域网内任何人都能看到并修改这些配置（包括打印机访问码）。建议在 docker-compose.yml 里设置 WEB_PASSWORD。</div>{% endif %}
+
+  <form method="post" action="/config">
+    <h2>打印机（局域网模式，支持多台）</h2>
+    <div class="card">
+      <div id="printer-list"></div>
+      <button type="button" class="secondary" onclick="addPrinter()">＋ 添加打印机</button>
+      <div class="hint">
+        在打印机屏幕：设置 → 网络，可以看到 IP、访问码（Access Code），序列号（SN）在设置 → 设备信息里。拓竹 X1 / P1 / A1 / H2 系列都适用。
+        新版固件如果连不上，可能需要打开"仅局域网模式"（部分机型还需要开发者模式）。
+      </div>
+    </div>
+
+    <h2>推送类别</h2>
+    <div class="card">
+      <div class="checkbox-row"><input type="checkbox" name="alert_on_pause" id="alert_on_pause" {% if config.alert_on_pause %}checked{% endif %}><label for="alert_on_pause">打印暂停（含 AI 检测到炒面等自动暂停）</label></div>
+      <div class="checkbox-row"><input type="checkbox" name="alert_on_error_code" id="alert_on_error_code" {% if config.alert_on_error_code %}checked{% endif %}><label for="alert_on_error_code">出现错误 / 异常代码</label></div>
+      <div class="checkbox-row"><input type="checkbox" name="alert_on_failed" id="alert_on_failed" {% if config.alert_on_failed %}checked{% endif %}><label for="alert_on_failed">打印失败</label></div>
+      <div class="checkbox-row"><input type="checkbox" name="alert_on_finish" id="alert_on_finish" {% if config.alert_on_finish %}checked{% endif %}><label for="alert_on_finish">打印完成</label></div>
+      <div class="checkbox-row"><input type="checkbox" name="alert_on_start" id="alert_on_start" {% if config.alert_on_start %}checked{% endif %}><label for="alert_on_start">开始打印</label></div>
+      <div class="hint">只有勾选的类别才会向下面的渠道推送；仪表盘的报警记录不受影响，所有事件都会记录。</div>
+    </div>
+
+    <h2>自定义错误代码</h2>
+    <div class="card">
+      <label>错误代码对应的含义（每行一条：代码=说明）</label>
+      <textarea name="error_code_map" style="min-height:110px;" placeholder="83918991=摄像头清理暂停">{{ config.error_code_map }}</textarea>
+      <div class="hint">收到错误代码时，推送和报警记录里会显示你填的说明；没填的会显示代码本身（含十六进制），方便查询后补充。代码支持十进制或 0x 开头的十六进制，# 开头的行会被忽略。</div>
+    </div>
+
+    <h2>Telegram</h2>
+    <div class="card">
+      <div class="checkbox-row"><input type="checkbox" name="telegram_enabled" id="telegram_enabled" {% if config.telegram_enabled %}checked{% endif %}><label for="telegram_enabled">启用</label></div>
+      <label>Bot Token</label>
+      <input type="password" name="telegram_bot_token" value="{{ config.telegram_bot_token }}" placeholder="123456:ABC-DEF...">
+      <label>Chat ID</label>
+      <input type="text" name="telegram_chat_id" value="{{ config.telegram_chat_id }}" placeholder="123456789">
+      <label>API 地址（国内无法直连 Telegram 时可填反向代理地址）</label>
+      <input type="text" name="telegram_api_base" value="{{ config.telegram_api_base }}">
+      <div class="hint">没有 Bot：找 @BotFather 发 /newbot 创建拿到 Token；给新 Bot 发一条消息后访问 https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates 可以看到 chat id。</div>
+    </div>
+
+    <h2>Bark（iOS）</h2>
+    <div class="card">
+      <div class="checkbox-row"><input type="checkbox" name="bark_enabled" id="bark_enabled" {% if config.bark_enabled %}checked{% endif %}><label for="bark_enabled">启用</label></div>
+      <label>Bark Key</label>
+      <input type="password" name="bark_key" value="{{ config.bark_key }}" placeholder="App 里显示的推送 key">
+      <label>Bark 服务器（自建服务器才需要改）</label>
+      <input type="text" name="bark_server" value="{{ config.bark_server }}">
+    </div>
+
+    <h2>ntfy（Android / iOS / 网页）</h2>
+    <div class="card">
+      <div class="checkbox-row"><input type="checkbox" name="ntfy_enabled" id="ntfy_enabled" {% if config.ntfy_enabled %}checked{% endif %}><label for="ntfy_enabled">启用</label></div>
+      <label>主题（topic，起一个不容易被猜到的名字）</label>
+      <input type="text" name="ntfy_topic" value="{{ config.ntfy_topic }}" placeholder="my-printer-alarm-x7k2">
+      <label>服务器</label>
+      <input type="text" name="ntfy_server" value="{{ config.ntfy_server }}">
+      <label>访问令牌（自建且开启鉴权时才需要）</label>
+      <input type="password" name="ntfy_token" value="{{ config.ntfy_token }}">
+    </div>
+
+    <h2>自定义 Webhook（可添加多个：飞书 / 企业微信 / 钉钉机器人、n8n 等）</h2>
+    <div class="card">
+      <div id="webhook-list"></div>
+      <button type="button" class="secondary" onclick="addWebhook()">＋ 添加 Webhook</button>
+      <div class="hint">
+        每个 Webhook 都会收到所有勾选类别的推送，可以单独停用。Body 模板里用 {title} / {message} 做占位符。<br>
+        飞书：{"msg_type":"text","content":{"text":"{message}"}}<br>
+        企业微信 / 钉钉：{"msgtype":"text","text":{"content":"{message}"}}（钉钉需要在消息里带上机器人设置的关键词）
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="submit">保存</button>
+      <button type="button" class="secondary" onclick="testNotify()">发送测试推送</button>
+      <span id="test-result"></span>
+    </div>
+    <div class="hint">"发送测试推送"使用的是已保存的配置，改完请先点保存。</div>
+  </form>
+
+  <p style="margin-top:1.5rem;"><a href="/">&larr; 返回仪表盘</a></p>
+</div>
+
+<script id="printers-data" type="application/json">{{ config.printers | tojson }}</script>
+<script id="webhooks-data" type="application/json">{{ config.webhooks | tojson }}</script>
+<script>
+function esc(s) {
+  return (s ?? '').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function addPrinter(p) {
+  p = p || { name: '', ip: '', serial: '', access_code: '', enabled: true };
+  const div = document.createElement('div');
+  div.className = 'printer';
+  div.innerHTML = `
+    <div class="printer-head"><span>打印机</span><button type="button" class="danger" onclick="this.closest('.printer').remove()">删除</button></div>
+    <div class="row2">
+      <div><label>名称（会出现在推送里）</label><input type="text" name="printer_name" value="${esc(p.name)}" placeholder="例如 H2D / 客厅 P1S"></div>
+      <div><label>状态</label>
+        <select name="printer_enabled">
+          <option value="1" ${p.enabled !== false ? 'selected' : ''}>启用</option>
+          <option value="0" ${p.enabled === false ? 'selected' : ''}>停用</option>
+        </select></div>
+    </div>
+    <label>IP 地址</label>
+    <input type="text" name="printer_ip" value="${esc(p.ip)}" placeholder="192.168.1.100">
+    <label>序列号（SN）</label>
+    <input type="text" name="printer_serial" value="${esc(p.serial)}">
+    <label>访问码（Access Code）</label>
+    <input type="password" name="printer_access_code" value="${esc(p.access_code)}">`;
+  document.getElementById('printer-list').appendChild(div);
+}
+
+const saved = JSON.parse(document.getElementById('printers-data').textContent);
+(saved.length ? saved : [null]).forEach(addPrinter);
+
+
+function addWebhook(h) {
+  h = h || { name: '', enabled: true, method: 'POST', url: '', headers: '', body_template: '{"text": "{message}"}' };
+  const div = document.createElement('div');
+  div.className = 'printer';
+  div.innerHTML = `
+    <div class="printer-head"><span>Webhook</span><button type="button" class="danger" onclick="this.closest('.printer').remove()">删除</button></div>
+    <div class="row2">
+      <div><label>名称</label><input type="text" name="webhook_name" value="${esc(h.name)}" placeholder="例如 飞书群 / n8n"></div>
+      <div><label>状态</label>
+        <select name="webhook_enabled">
+          <option value="1" ${h.enabled !== false ? 'selected' : ''}>启用</option>
+          <option value="0" ${h.enabled === false ? 'selected' : ''}>停用</option>
+        </select></div>
+    </div>
+    <div class="row2">
+      <div><label>请求方式</label>
+        <select name="webhook_method">
+          ${['POST', 'PUT', 'GET'].map(m => `<option value="${m}" ${h.method === m ? 'selected' : ''}>${m}</option>`).join('')}
+        </select></div>
+      <div><label>URL</label><input type="text" name="webhook_url" value="${esc(h.url)}" placeholder="https://example.com/hook"></div>
+    </div>
+    <label>Headers（JSON，可留空）</label>
+    <textarea name="webhook_headers" placeholder='{"Authorization": "Bearer xxx"}'>${esc(h.headers)}</textarea>
+    <label>Body 模板</label>
+    <textarea name="webhook_body">${esc(h.body_template)}</textarea>`;
+  document.getElementById('webhook-list').appendChild(div);
+}
+
+JSON.parse(document.getElementById('webhooks-data').textContent).forEach(addWebhook);
+
+async function testNotify() {
+  const out = document.getElementById('test-result');
+  out.style.color = '#9aa0a6';
+  out.textContent = '发送中…';
+  try {
+    const resp = await fetch('/api/test-notify', { method: 'POST' });
+    const data = await resp.json();
+    const entries = Object.entries(data.results || {});
+    if (!entries.length) { out.style.color = '#ffcf8b'; out.textContent = '没有启用任何推送渠道（或还没保存）。'; return; }
+    out.style.color = entries.every(([, v]) => v === 'ok') ? '#7ee2a0' : '#ff9f0a';
+    out.textContent = entries.map(([k, v]) => `${k}：${v === 'ok' ? '成功' : v}`).join('\n');
+  } catch (e) {
+    out.style.color = '#ff6b6b';
+    out.textContent = '请求失败：' + e;
+  }
+}
+</script>
+</body>
+</html>
