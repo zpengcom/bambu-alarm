@@ -15,7 +15,7 @@ import time
 
 import paho.mqtt.client as mqtt
 
-from app.common import store
+from app.common import hms, store
 from app.web import notify
 
 log = logging.getLogger("bambu-alarm.mqtt")
@@ -55,6 +55,9 @@ class PrinterWatcher:
 
     # -- lifecycle ---------------------------------------------------------
     def start(self):
+        cfg = store.load_config()
+        if cfg.get("error_use_official", True):
+            hms.prefetch(self.serial, cfg.get("error_official_lang") or hms.DEFAULT_LANG)  # warm the cache
         self._thread = threading.Thread(target=self._run, daemon=True, name=f"watch-{self.serial[-6:]}")
         self._thread.start()
 
@@ -182,12 +185,12 @@ class PrinterWatcher:
             else:
                 return
         else:  # error
-            desc = store.parse_error_code_map(config.get("error_code_map", "")).get(value)
+            desc = store.resolve_error_text(value, self.serial, config)
             title = f"{self.name} 打印异常"
             if desc:
-                message = f"错误代码 {value}：{desc}"
+                message = f"错误代码 {value}（0x{value:08X}）：{desc}"
             else:
-                message = f"错误代码 {value}（0x{value:X}），暂无自定义说明，请检查设备。"
+                message = f"错误代码 {value}（0x{value:08X}），官方库和自定义里都暂无说明，请检查设备。"
             message += self._task_suffix()
             push = config.get("alert_on_error_code", True)
 

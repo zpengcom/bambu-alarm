@@ -39,8 +39,11 @@ DEFAULT_CONFIG = {
     "alert_on_finish": True,
     "alert_on_failed": True,
     "alert_on_error_code": True,
+    # Error-code meanings: official Bambu table by default; the custom map below overrides it
+    "error_use_official": True,
+    "error_official_lang": "zh-cn",   # "zh-cn" or "en"
     # Custom meanings for error codes, one per line: "code=description"
-    "error_code_map": "# 每行一条：错误代码=说明，例如\n83918991=摄像头清理暂停",
+    "error_code_map": "# 可选：覆盖官方说明，每行一条：错误代码=说明\n# 例如：83918991=摄像头清理暂停",
     # Telegram
     "telegram_enabled": False,
     "telegram_bot_token": "",
@@ -215,11 +218,26 @@ def parse_error_code_map(text: str) -> dict:
     return result
 
 
+def resolve_error_text(code: int, serial: str = "", config: dict = None, fetch: bool = True) -> str:
+    """Meaning of an error code: your custom map first, then the official Bambu table ('' if unknown).
+
+    fetch=False never waits on the network (used by the dashboard / MCP status calls)."""
+    if not code:
+        return ""
+    config = config or load_config()
+    custom = parse_error_code_map(config.get("error_code_map", "")).get(code)
+    if custom:
+        return custom
+    if config.get("error_use_official", True):
+        from app.common import hms  # lazy: hms imports this module
+        return hms.lookup(code, serial, config.get("error_official_lang") or hms.DEFAULT_LANG, fetch=fetch)
+    return ""
+
+
 def printer_overview(config: dict = None, state: dict = None) -> list:
     """One merged, secret-free status record per configured printer."""
     config = config or load_config()
     state = state or load_state()
-    code_map = parse_error_code_map(config.get("error_code_map", ""))
     rows = []
     for p in config.get("printers", []):
         s = dict(DEFAULT_PRINTER_STATE)
@@ -232,7 +250,7 @@ def printer_overview(config: dict = None, state: dict = None) -> list:
             "gcode_state": s["gcode_state"],
             "state_text": STATE_LABELS.get(s["gcode_state"], s["gcode_state"] or "未知"),
             "print_error": code,
-            "error_text": code_map.get(code, "") if code else "",
+            "error_text": resolve_error_text(code, p.get("serial", ""), config, fetch=False) if code else "",
             "task_name": s["task_name"],
             "progress": s["progress"],
             "last_seen": s["last_seen"],

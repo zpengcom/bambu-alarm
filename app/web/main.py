@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from app.common import store
+from app.common import hms, store
 from app.web import notify
 from app.web.mqtt_client import manager
 
@@ -119,6 +119,8 @@ async def config_save(request: Request):
         "alert_on_finish": _flag(form, "alert_on_finish"),
         "alert_on_failed": _flag(form, "alert_on_failed"),
         "alert_on_error_code": _flag(form, "alert_on_error_code"),
+        "error_use_official": _flag(form, "error_use_official"),
+        "error_official_lang": text("error_official_lang", "zh-cn") if text("error_official_lang") in ("zh-cn", "en") else "zh-cn",
         "error_code_map": str(form.get("error_code_map", "")).strip(),
         "telegram_enabled": _flag(form, "telegram_enabled"),
         "telegram_bot_token": text("telegram_bot_token"),
@@ -134,6 +136,9 @@ async def config_save(request: Request):
         "webhooks": webhooks,
     }
     store.save_config(new_config)
+    if new_config["error_use_official"]:
+        for p in printers:  # warm the official error-code table (also picks up a language change)
+            hms.prefetch(p["serial"], new_config["error_official_lang"])
     if new_config["printers"] != old.get("printers"):
         manager.sync_async()  # connection settings changed: restart the watchers
     return RedirectResponse(url="/config?saved=1", status_code=303)
@@ -142,6 +147,18 @@ async def config_save(request: Request):
 @app.get("/api/status")
 def api_status():
     return _status()
+
+
+@app.get("/api/error-code/{code}")
+def api_error_code(code: str):
+    """Look up what an error code means (decimal or 0x hex), e.g. /api/error-code/50364419 - handy for testing."""
+    try:
+        value = int(code, 0)
+    except ValueError:
+        return {"ok": False, "error": "code must be a decimal or 0x-hex number"}
+    config = store.load_config()
+    serial = next((p.get("serial", "") for p in config.get("printers", []) if p.get("serial")), "")
+    return {"ok": True, "code": value, "hex": f"{value:08X}", "text": store.resolve_error_text(value, serial, config)}
 
 
 @app.post("/api/alerts/clear")

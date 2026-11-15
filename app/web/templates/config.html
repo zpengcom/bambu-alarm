@@ -60,11 +60,17 @@
       <div class="hint">只有勾选的类别才会向下面的渠道推送；仪表盘的报警记录不受影响，所有事件都会记录。</div>
     </div>
 
-    <h2>自定义错误代码</h2>
+    <h2>错误代码含义</h2>
     <div class="card">
-      <label>错误代码对应的含义（每行一条：代码=说明）</label>
+      <div class="checkbox-row"><input type="checkbox" name="error_use_official" id="error_use_official" {% if config.error_use_official %}checked{% endif %}><label for="error_use_official">默认使用拓竹官方的错误代码说明（自动联网获取并缓存，每天更新一次）</label></div>
+      <label>官方说明语言</label>
+      <select name="error_official_lang">
+        <option value="zh-cn" {% if config.error_official_lang != 'en' %}selected{% endif %}>中文</option>
+        <option value="en" {% if config.error_official_lang == 'en' %}selected{% endif %}>English</option>
+      </select>
+      <label>自定义覆盖（可选，每行一条：代码=说明）</label>
       <textarea name="error_code_map" style="min-height:110px;" placeholder="83918991=摄像头清理暂停">{{ config.error_code_map }}</textarea>
-      <div class="hint">收到错误代码时，推送和报警记录里会显示你填的说明；没填的会显示代码本身（含十六进制），方便查询后补充。代码支持十进制或 0x 开头的十六进制，# 开头的行会被忽略。</div>
+      <div class="hint">收到错误代码时，优先显示你在这里填的说明，没填的再用官方说明；两边都没有时只显示代码本身（含十六进制）。官方库按序列号前三位识别机型（094 = H2D）。代码支持十进制或 0x 开头的十六进制，# 开头的行会被忽略。想完全用官方说明，清空这个框即可。可访问 /api/error-code/代码 测试某个代码能不能查到。</div>
     </div>
 
     <h2>Telegram</h2>
